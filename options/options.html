@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Auto Tab Memory Saver Options</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div>
+          <h1>Auto Tab Memory Saver</h1>
+          <p>Native tab discarding settings</p>
+        </div>
+        <div class="header-actions">
+          <button id="saveSettings" type="button">Save</button>
+          <button id="resetSettings" type="button" class="quiet">Reset</button>
+        </div>
+      </header>
+
+      <form id="settingsForm">
+        <section class="section">
+          <h2>Schedule</h2>
+          <div class="form-grid">
+            <label class="toggle-row">
+              <input id="autoDiscardEnabled" type="checkbox">
+              <span>Automatic discarding</span>
+            </label>
+            <label class="field">
+              <span>Discard after inactive minutes</span>
+              <input id="discardAfterMinutes" type="number" min="1" max="10080" step="1">
+            </label>
+            <label class="field">
+              <span>Check every minutes</span>
+              <input id="checkEveryMinutes" type="number" min="1" max="1440" step="1">
+            </label>
+            <label class="toggle-row">
+              <input id="onlyWhenSystemIdle" type="checkbox">
+              <span>Only discard while the system is idle</span>
+            </label>
+            <label class="field">
+              <span>Idle threshold minutes</span>
+              <input id="idleThresholdMinutes" type="number" min="1" max="240" step="1">
+            </label>
+            <label class="toggle-row">
+              <input id="discardNewInactiveTabs" type="checkbox">
+              <span>Discard newly opened background tabs</span>
+            </label>
+            <label class="field">
+              <span>Discard if JS heap exceeds MB</span>
+              <input id="discardWhenHeapAboveMb" type="number" min="0" max="32768" step="1">
+            </label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Protected Conditions</h2>
+          <div class="checks">
+            <label><input id="skipPinned" type="checkbox"> Pinned tabs</label>
+            <label><input id="skipAudible" type="checkbox"> Audible tabs</label>
+            <label><input id="skipMediaPlaying" type="checkbox"> Playing media</label>
+            <label><input id="skipPausedMedia" type="checkbox"> Paused media</label>
+            <label><input id="skipUnsavedForms" type="checkbox"> Unsaved form changes</label>
+            <label><input id="skipOfflinePages" type="checkbox"> Offline pages</label>
+            <label><input id="skipNotificationPages" type="checkbox"> Notification-enabled pages</label>
+            <label><input id="skipBatteryPower" type="checkbox"> Battery power</label>
+            <label><input id="skipAutoDiscardDisabled" type="checkbox"> Chrome auto-discard disabled</label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Site Rules</h2>
+          <div class="rule-grid">
+            <label>
+              <span>Never discard</span>
+              <textarea id="exceptionRules" spellcheck="false" rows="9"></textarea>
+            </label>
+            <label>
+              <span>Force eligible</span>
+              <textarea id="forceRules" spellcheck="false" rows="9"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Discarded Tab Cleanup</h2>
+          <div class="form-grid">
+            <label class="toggle-row">
+              <input id="closeOldDiscardedTabs" type="checkbox">
+              <span>Close old discarded tabs</span>
+            </label>
+            <label class="field">
+              <span>Close after days</span>
+              <input id="closeDiscardedAfterDays" type="number" min="1" max="3650" step="1">
+            </label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Import / Export</h2>
+          <div class="io-actions">
+            <button id="exportSettings" type="button" class="quiet">Export</button>
+            <button id="importSettings" type="button" class="quiet">Import</button>
+          </div>
+          <textarea id="settingsJson" spellcheck="false" rows="10"></textarea>
+        </section>
+      </form>
+
+      <p id="status" class="status" role="status"></p>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
