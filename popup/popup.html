@@ -13,81 +13,89 @@
           <h1>Auto Tab Memory Saver</h1>
           <p id="summaryText">Loading tabs...</p>
         </div>
-        <label class="switch" title="Automatic discarding">
-          <input id="autoDiscardEnabled" type="checkbox">
-          <span></span>
-        </label>
+        <div class="topbar-actions">
+          <label class="switch" title="Automatic discarding">
+            <input id="autoDiscardEnabled" type="checkbox">
+            <span></span>
+          </label>
+          <button id="openOptions" type="button" class="quiet">Options</button>
+        </div>
       </header>
 
-      <section class="quick-settings" aria-label="Quick settings">
-        <label>
-          <span>Discard after</span>
-          <input id="discardAfterMinutes" type="number" min="1" max="10080" step="1">
-        </label>
-        <button id="saveQuickSettings" type="button">Save</button>
-        <button id="openOptions" type="button" class="quiet">Options</button>
-      </section>
-
-      <section class="current-tab" aria-label="Current tab">
-        <div>
-          <h2 id="currentHost">Current tab</h2>
-          <p id="currentReason">Loading state...</p>
-        </div>
-        <div class="button-row">
-          <button id="toggleTabProtection" type="button" class="quiet">Protect tab</button>
-          <button id="toggleSiteException" type="button" class="quiet">Protect site</button>
+      <section class="operation-section" aria-label="Current tab actions">
+        <div class="operation-label">Current tab</div>
+        <div class="current-tab">
+          <div>
+            <h2 id="currentHost">Current tab</h2>
+            <p id="currentReason">Loading state...</p>
+          </div>
+          <div class="button-row">
+            <button id="toggleTabProtection" type="button" class="quiet">Protect tab</button>
+            <button id="toggleSiteException" type="button" class="quiet">Protect site</button>
+          </div>
         </div>
       </section>
 
-      <section class="actions" aria-label="Actions">
-        <button id="discardWindow" type="button">Discard eligible</button>
-        <button id="forceDiscardWindow" type="button">Force discard</button>
-        <button id="reloadDiscarded" type="button" class="quiet">Reload discarded</button>
-      </section>
-
-      <section class="bulk-tools" aria-label="Bulk tab tools">
-        <div class="search-row">
-          <input id="tabSearch" type="search" placeholder="Search tabs">
-          <select id="sortTabs" aria-label="Sort tabs">
-            <option value="position">Tab order</option>
-            <option value="memory">Memory</option>
-            <option value="lastAccessed">Last accessed</option>
-          </select>
-        </div>
-        <label class="filter-toggle">
-          <input id="loadedOnlyFilter" type="checkbox">
-          <span>Loaded tabs only</span>
-        </label>
-        <div class="bulk-row">
-          <button id="selectMatching" type="button" class="quiet">Select matches</button>
-          <button id="clearSelection" type="button" class="quiet">Clear</button>
-          <button id="discardChecked" type="button">Discard checked</button>
-          <button id="forceDiscardChecked" type="button" class="quiet">Force checked</button>
-        </div>
-        <div class="bulk-row">
-          <button id="highlightChecked" type="button" class="quiet">Highlight checked</button>
-          <button id="discardHighlighted" type="button" class="quiet">Discard Chrome selection</button>
-          <button id="forceDiscardHighlighted" type="button" class="quiet">Force selection</button>
-        </div>
-        <div class="bulk-row">
+      <section class="operation-section" aria-label="Current group actions">
+        <div class="operation-label">Current group</div>
+        <div class="button-row current-group-actions">
           <button id="discardCurrentGroup" type="button" class="quiet">Discard group</button>
           <button id="forceDiscardCurrentGroup" type="button" class="quiet">Force group</button>
         </div>
-        <div id="selectionSummary" class="selection-summary" hidden></div>
-        <div class="memory-row">
-          <span id="memorySource">Memory: loading</span>
+      </section>
+
+      <section class="operation-section" aria-label="All tab actions">
+        <div class="operation-label">All tabs</div>
+        <div class="actions">
+          <button id="discardWindow" type="button">Discard eligible</button>
+          <button id="forceDiscardWindow" type="button">Force discard</button>
+          <button id="reloadDiscarded" type="button" class="quiet">Reload discarded</button>
         </div>
-        <div id="memoryBreakdown" class="memory-breakdown"></div>
+      </section>
+
+      <section class="operation-section" aria-label="Selected tab actions">
+        <div class="operation-label">Selected tabs</div>
+        <div class="bulk-tools">
+          <div class="bulk-row">
+            <button id="selectMatching" type="button" class="quiet">Select matches</button>
+            <button id="clearSelection" type="button" class="quiet">Clear</button>
+            <button id="discardChecked" type="button">Discard checked</button>
+            <button id="forceDiscardChecked" type="button" class="quiet">Force checked</button>
+          </div>
+          <div class="bulk-row">
+            <button id="highlightChecked" type="button" class="quiet">Highlight checked</button>
+            <button id="discardHighlighted" type="button" class="quiet">Discard Chrome selection</button>
+            <button id="forceDiscardHighlighted" type="button" class="quiet">Force selection</button>
+          </div>
+          <div id="selectionSummary" class="selection-summary" hidden></div>
+        </div>
       </section>
 
       <p id="status" class="status" role="status"></p>
 
       <section class="tabs-section" aria-label="Tabs in current window">
+        <div class="tabs-controls">
+          <div class="search-row">
+            <input id="tabSearch" type="search" placeholder="Search tabs">
+            <select id="sortTabs" aria-label="Sort tabs">
+              <option value="position">Tab order</option>
+              <option value="memory">Memory</option>
+              <option value="lastAccessed">Last accessed</option>
+            </select>
+          </div>
+          <label class="filter-toggle">
+            <input id="loadedOnlyFilter" type="checkbox" checked>
+            <span>Loaded tabs only</span>
+          </label>
+        </div>
+        <div class="memory-row">
+          <span id="memorySource">Memory: loading</span>
+        </div>
+        <div id="memoryBreakdown" class="memory-breakdown"></div>
         <div class="tabs-header">
           <h2>Current Window</h2>
           <span id="eligibleCount">0 eligible</span>
         </div>
-        <div id="groupsList" class="groups-list"></div>
         <div id="tabsList" class="tabs-list"></div>
       </section>
     </main>

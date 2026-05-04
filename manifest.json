@@ -13,7 +13,6 @@
   "permissions": [
     "alarms",
     "contextMenus",
-    "idle",
     "scripting",
     "storage",
     "tabGroups",

@@ -4,8 +4,6 @@ const fieldIds = [
   "autoDiscardEnabled",
   "discardAfterMinutes",
   "checkEveryMinutes",
-  "onlyWhenSystemIdle",
-  "idleThresholdMinutes",
   "discardNewInactiveTabs",
   "discardWhenHeapAboveMb",
   "skipPinned",

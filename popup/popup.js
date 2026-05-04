@@ -2,8 +2,6 @@ import { normalizeSettings } from "../src/constants.js";
 
 const els = {
   autoDiscardEnabled: document.querySelector("#autoDiscardEnabled"),
-  discardAfterMinutes: document.querySelector("#discardAfterMinutes"),
-  saveQuickSettings: document.querySelector("#saveQuickSettings"),
   openOptions: document.querySelector("#openOptions"),
   summaryText: document.querySelector("#summaryText"),
   currentHost: document.querySelector("#currentHost"),
@@ -30,25 +28,24 @@ const els = {
   memoryBreakdown: document.querySelector("#memoryBreakdown"),
   status: document.querySelector("#status"),
   eligibleCount: document.querySelector("#eligibleCount"),
-  groupsList: document.querySelector("#groupsList"),
   tabsList: document.querySelector("#tabsList")
 };
 
 let popupData = null;
 let searchTerm = "";
 let sortMode = "position";
-let loadedOnly = false;
+let loadedOnly = true;
 const selectedTabIds = new Set();
 let visibleTabsCache = [];
 
 document.addEventListener("DOMContentLoaded", () => {
+  loadedOnly = els.loadedOnlyFilter.checked;
   bindEvents();
   void loadPopupData();
 });
 
 function bindEvents() {
-  els.autoDiscardEnabled.addEventListener("change", () => saveQuickSettings());
-  els.saveQuickSettings.addEventListener("click", () => saveQuickSettings());
+  els.autoDiscardEnabled.addEventListener("change", () => savePopupSettings());
   els.openOptions.addEventListener("click", () => chrome.runtime.openOptionsPage());
   els.toggleTabProtection.addEventListener("click", () => toggleTabProtection());
   els.toggleSiteException.addEventListener("click", () => toggleSiteException());
@@ -76,7 +73,6 @@ function bindEvents() {
   els.forceDiscardHighlighted.addEventListener("click", () => discardHighlightedTabs(true));
   els.discardCurrentGroup.addEventListener("click", () => discardCurrentGroup());
   els.forceDiscardCurrentGroup.addEventListener("click", () => discardCurrentGroup(true));
-  els.groupsList.addEventListener("click", (event) => handleGroupAction(event));
   els.tabsList.addEventListener("click", (event) => handleTabAction(event));
   els.tabsList.addEventListener("change", (event) => handleTabSelection(event));
 }
@@ -117,7 +113,6 @@ function render(data) {
   const total = data.summary.totalTabs;
 
   els.autoDiscardEnabled.checked = settings.autoDiscardEnabled;
-  els.discardAfterMinutes.value = settings.discardAfterMinutes;
   els.summaryText.textContent = `${total} tabs, ${discarded} discarded, ${selectedTabIds.size} checked`;
 
   renderCurrentTab(data.activeTab);
@@ -191,8 +186,7 @@ function renderTabArea() {
   visibleTabsCache = visibleTabs;
   els.summaryText.textContent = `${popupData.summary.totalTabs} tabs, ${popupData.summary.discardedTabs} discarded, ${selectedTabIds.size} checked`;
   els.eligibleCount.textContent = `${visibleTabs.length} shown, ${countVisibleEligibleTabs(visibleTabs)} eligible`;
-  renderGroups(popupData.groups || []);
-  renderTabs(visibleTabs);
+  renderTabSections(visibleTabs);
   renderSelectionState();
 }
 
@@ -244,11 +238,10 @@ function createSelectionSection(titleText, stats) {
   const metrics = document.createElement("div");
   metrics.className = "selection-metrics";
   metrics.append(
-    createSelectionMetric("Regular", String(stats.manualEligible)),
-    createSelectionMetric("Force", String(stats.forceEligible)),
+    createSelectionMetric("Discardable", String(stats.manualEligible)),
+    createSelectionMetric("Force discardable", String(stats.forceEligible)),
     createSelectionMetric("Blocked", String(stats.blocked)),
     createSelectionMetric("Discarded", String(stats.discarded)),
-    createSelectionMetric("Active", String(stats.active)),
     createSelectionMetric("Observed heap", formatBytes(stats.memoryBytes))
   );
 
@@ -271,54 +264,7 @@ function createSelectionMetric(label, value) {
   return item;
 }
 
-function renderGroups(groups) {
-  if (!groups.length) {
-    els.groupsList.replaceChildren();
-    return;
-  }
-
-  els.groupsList.replaceChildren(...groups.map((group) => {
-    const row = document.createElement("div");
-    row.className = ["group-row", group.active ? "active" : ""].filter(Boolean).join(" ");
-
-    const color = document.createElement("span");
-    color.className = `group-color group-${group.color || "grey"}`;
-
-    const label = document.createElement("div");
-    label.className = "group-label";
-    label.textContent = `${group.title || `Group ${group.id}`} (${group.tabCount})`;
-    label.title = `${group.tabCount} tabs, ${group.discardedCount} discarded, ${group.eligibleCount || 0} discardable`;
-
-    const actions = document.createElement("div");
-    actions.className = "group-actions";
-
-    const button = document.createElement("button");
-    const blockedReasonSummary = formatReasonCounts(group.blockedReasons);
-    button.type = "button";
-    button.className = "quiet group-action";
-    button.dataset.groupId = String(group.id);
-    button.textContent = "Discard";
-    button.disabled = !group.eligibleCount;
-    button.title = group.eligibleCount
-      ? `Discard ${group.eligibleCount} eligible tabs in this group`
-      : `No discardable tabs in this group${blockedReasonSummary ? `: ${blockedReasonSummary}` : ""}`;
-
-    const forceButton = document.createElement("button");
-    forceButton.type = "button";
-    forceButton.className = "quiet group-action";
-    forceButton.dataset.groupId = String(group.id);
-    forceButton.dataset.force = "true";
-    forceButton.textContent = "Force";
-    forceButton.disabled = group.tabCount === group.discardedCount;
-    forceButton.title = "Force discard loaded tabs in this group";
-
-    actions.append(button, forceButton);
-    row.append(color, label, actions);
-    return row;
-  }));
-}
-
-function renderTabs(tabs) {
+function renderTabSections(tabs) {
   if (!tabs.length) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
@@ -327,70 +273,178 @@ function renderTabs(tabs) {
     return;
   }
 
-  els.tabsList.replaceChildren(...tabs.map((tab) => {
-    const row = document.createElement("div");
-    row.className = [
-      "tab-row",
-      tab.active ? "active" : "",
-      tab.highlighted ? "highlighted" : "",
-      tab.discarded ? "discarded" : "",
-      selectedTabIds.has(tab.id) ? "checked" : ""
-    ].filter(Boolean).join(" ");
+  const sections = buildTabSections(tabs);
+  els.tabsList.replaceChildren(...sections.map((section) => createTabSection(section)));
+}
 
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.className = "tab-select";
-    checkbox.dataset.selectTabId = String(tab.id);
-    checkbox.checked = selectedTabIds.has(tab.id);
-    checkbox.disabled = tab.active || tab.discarded;
-    checkbox.title = tab.active
-      ? "Active tabs cannot be discarded"
-      : tab.discarded ? "Already discarded" : "Select tab";
+function buildTabSections(tabs) {
+  const sections = [];
+  const pinnedTabs = tabs.filter((tab) => tab.pinned);
+  const groupedSections = new Map();
+  const ungroupedTabs = [];
 
-    const dot = document.createElement("span");
-    dot.className = [
-      "tab-dot",
-      tab.discarded ? "blocked" : tab.ready ? "ready" : tab.eligible ? "waiting" : "blocked"
-    ].join(" ");
-
-    const main = document.createElement("div");
-    main.className = "tab-main";
-
-    const title = document.createElement("div");
-    title.className = "tab-title";
-    title.textContent = tab.title;
-    title.title = tab.title;
-
-    const meta = document.createElement("div");
-    meta.className = "tab-meta";
-    meta.textContent = getTabMeta(tab);
-    meta.title = meta.textContent;
-
-    main.append(title, meta);
-
-    const memory = document.createElement("div");
-    memory.className = "tab-memory";
-    memory.textContent = formatMemoryLabel(tab);
-    memory.title = formatMemoryTitle(tab);
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = tab.discarded ? "tab-action" : "tab-action quiet";
-    button.dataset.tabId = String(tab.id);
-
-    if (tab.discarded) {
-      button.dataset.action = "reload";
-      button.textContent = "Reload";
-    } else {
-      button.dataset.action = "discard";
-      button.textContent = "Discard";
-      button.disabled = tab.active || !tab.manualEligible;
-      button.title = tab.active ? "Active tabs cannot be discarded" : tab.manualReason;
+  tabs.forEach((tab, order) => {
+    if (tab.pinned) {
+      return;
     }
 
-    row.append(checkbox, dot, main, memory, button);
-    return row;
-  }));
+    if (tab.group) {
+      const key = String(tab.groupId);
+      const existing = groupedSections.get(key) || {
+        type: "group",
+        title: tab.group.title || `Group ${tab.groupId}`,
+        color: tab.group.color || "grey",
+        tabs: [],
+        firstOrder: order
+      };
+      existing.tabs.push(tab);
+      existing.firstOrder = Math.min(existing.firstOrder, order);
+      groupedSections.set(key, existing);
+    } else {
+      ungroupedTabs.push(tab);
+    }
+  });
+
+  if (pinnedTabs.length) {
+    sections.push({
+      type: "pinned",
+      title: "Pinned tabs",
+      tabs: pinnedTabs,
+      firstOrder: 0
+    });
+  }
+
+  sections.push(...[...groupedSections.values()]
+    .sort((a, b) => a.firstOrder - b.firstOrder || a.title.localeCompare(b.title)));
+
+  if (ungroupedTabs.length) {
+    sections.push({
+      type: "ungrouped",
+      title: "Ungrouped tabs",
+      tabs: ungroupedTabs,
+      firstOrder: 0
+    });
+  }
+
+  return sections;
+}
+
+function createTabSection(section) {
+  const sectionEl = document.createElement("section");
+  sectionEl.className = `tab-list-section ${section.type}`;
+
+  const header = document.createElement("div");
+  header.className = "tab-list-section-header";
+
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "tab-list-section-title";
+
+  if (section.type === "group") {
+    const color = document.createElement("span");
+    color.className = `group-color group-${section.color || "grey"}`;
+    titleWrap.append(color);
+  }
+
+  const title = document.createElement("h3");
+  title.textContent = section.title;
+  title.title = section.title;
+
+  titleWrap.append(title);
+
+  const summary = document.createElement("span");
+  summary.className = "tab-list-section-summary";
+  summary.textContent = getTabSectionSummary(section.tabs);
+  summary.title = summary.textContent;
+
+  const rows = document.createElement("div");
+  rows.className = "tab-list-section-tabs";
+  rows.replaceChildren(...section.tabs.map((tab) => createTabRow(tab)));
+
+  header.append(titleWrap, summary);
+  sectionEl.append(header, rows);
+  return sectionEl;
+}
+
+function createTabRow(tab) {
+  const row = document.createElement("div");
+  row.className = [
+    "tab-row",
+    tab.discarded ? "discarded" : "loaded",
+    tab.active ? "active" : "",
+    tab.highlighted ? "highlighted" : "",
+    selectedTabIds.has(tab.id) ? "checked" : ""
+  ].filter(Boolean).join(" ");
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "tab-select";
+  checkbox.dataset.selectTabId = String(tab.id);
+  checkbox.checked = selectedTabIds.has(tab.id);
+  checkbox.disabled = tab.active || tab.discarded;
+  checkbox.title = tab.active
+    ? "Active tabs cannot be discarded"
+    : tab.discarded ? "Already discarded" : "Select tab";
+
+  const main = document.createElement("div");
+  main.className = "tab-main";
+
+  const title = document.createElement("div");
+  title.className = "tab-title";
+  title.textContent = tab.title;
+  title.title = tab.title;
+
+  const meta = document.createElement("div");
+  meta.className = "tab-meta";
+  meta.textContent = getTabMeta(tab);
+  meta.title = meta.textContent;
+
+  main.append(title, meta);
+
+  const memory = document.createElement("div");
+  memory.className = "tab-memory";
+  memory.textContent = formatMemoryLabel(tab);
+  memory.title = formatMemoryTitle(tab);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = tab.discarded ? "tab-action" : "tab-action quiet";
+  button.dataset.tabId = String(tab.id);
+
+  if (tab.discarded) {
+    button.dataset.action = "reload";
+    button.textContent = "Reload";
+  } else {
+    button.dataset.action = "discard";
+    button.textContent = "Discard";
+    button.disabled = tab.active || !tab.manualEligible;
+    button.title = tab.active ? "Active tabs cannot be discarded" : tab.manualReason;
+  }
+
+  row.append(checkbox, main, memory, button);
+  return row;
+}
+
+function getTabSectionSummary(tabs) {
+  const loadedCount = tabs.filter((tab) => !tab.discarded).length;
+  const discardedCount = tabs.length - loadedCount;
+  const eligibleCount = countVisibleEligibleTabs(tabs);
+  const checkedCount = tabs.filter((tab) => selectedTabIds.has(tab.id)).length;
+  const parts = [
+    `${tabs.length} shown`,
+    `${loadedCount} loaded`
+  ];
+
+  if (discardedCount) {
+    parts.push(`${discardedCount} discarded`);
+  }
+
+  parts.push(`${eligibleCount} eligible`);
+
+  if (checkedCount) {
+    parts.push(`${checkedCount} checked`);
+  }
+
+  return parts.join(", ");
 }
 
 function getVisibleTabs() {
@@ -530,35 +584,14 @@ async function discardCurrentGroup(force = false) {
   }
 }
 
-async function handleGroupAction(event) {
-  const button = event.target.closest("button[data-group-id]");
-  if (!button) {
-    return;
-  }
-
-  try {
-    const response = await sendMessage({
-      type: "DISCARD_GROUP",
-      windowId: popupData?.activeTab?.windowId,
-      groupId: Number(button.dataset.groupId),
-      force: button.dataset.force === "true"
-    });
-    setBulkStatus(response);
-    await refreshPopupData();
-  } catch (error) {
-    setStatus(error.message, true);
-  }
-}
-
-async function saveQuickSettings() {
+async function savePopupSettings() {
   if (!popupData) {
     return;
   }
 
   const settings = normalizeSettings({
     ...popupData.settings,
-    autoDiscardEnabled: els.autoDiscardEnabled.checked,
-    discardAfterMinutes: Number(els.discardAfterMinutes.value)
+    autoDiscardEnabled: els.autoDiscardEnabled.checked
   });
 
   try {
@@ -768,7 +801,6 @@ function getChromeSelectionStats() {
 }
 
 function getSelectionStats(selectedTabs) {
-  const active = selectedTabs.filter((tab) => tab.active).length;
   const discarded = selectedTabs.filter((tab) => tab.discarded).length;
   const manualEligible = selectedTabs.filter((tab) => tab.manualEligible).length;
   const forceEligible = selectedTabs.filter((tab) => tab.forceEligible).length;
@@ -777,9 +809,8 @@ function getSelectionStats(selectedTabs) {
     count: selectedTabs.length,
     manualEligible,
     forceEligible,
-    active,
     discarded,
-    blocked: Math.max(0, selectedTabs.length - manualEligible - active - discarded),
+    blocked: Math.max(0, selectedTabs.length - manualEligible - discarded),
     memoryBytes: selectedTabs.reduce((total, tab) => total + getMemoryBytes(tab), 0)
   };
 }

@@ -49,12 +49,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-chrome.idle.onStateChanged.addListener((state) => {
-  if (state === "idle" || state === "locked") {
-    void runMaintenance({ source: "idle" });
-  }
-});
-
 chrome.tabs.onActivated.addListener((activeInfo) => {
   void markTabActive(activeInfo.tabId);
 });
@@ -752,14 +746,6 @@ async function runMaintenance(options = {}) {
 }
 
 async function getAutomaticPauseReason(settings) {
-  if (settings.onlyWhenSystemIdle) {
-    const seconds = Math.max(60, Math.floor(settings.idleThresholdMinutes * 60));
-    const idleState = await chrome.idle.queryState(seconds);
-    if (idleState === "active") {
-      return "System is active";
-    }
-  }
-
   if (settings.skipBatteryPower) {
     const runtimeState = await getRuntimeState();
     const battery = runtimeState.latestBatteryState;

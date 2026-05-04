@@ -6,8 +6,6 @@ export const DEFAULT_SETTINGS = {
   autoDiscardEnabled: true,
   discardAfterMinutes: 30,
   checkEveryMinutes: 1,
-  onlyWhenSystemIdle: false,
-  idleThresholdMinutes: 10,
   discardNewInactiveTabs: false,
   discardWhenHeapAboveMb: 0,
   skipPinned: true,
@@ -41,14 +39,12 @@ export const DEFAULT_RUNTIME_STATE = {
 const NUMERIC_LIMITS = {
   discardAfterMinutes: { min: 1, max: 10080, fallback: 30 },
   checkEveryMinutes: { min: 1, max: 1440, fallback: 1 },
-  idleThresholdMinutes: { min: 1, max: 240, fallback: 10 },
   discardWhenHeapAboveMb: { min: 0, max: 32768, fallback: 0 },
   closeDiscardedAfterDays: { min: 1, max: 3650, fallback: 7 }
 };
 
 const BOOLEAN_KEYS = [
   "autoDiscardEnabled",
-  "onlyWhenSystemIdle",
   "discardNewInactiveTabs",
   "skipPinned",
   "skipAudible",
