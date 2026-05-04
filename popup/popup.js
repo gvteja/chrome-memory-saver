@@ -36,6 +36,7 @@ let searchTerm = "";
 let sortMode = "position";
 let loadedOnly = true;
 const selectedTabIds = new Set();
+const collapsedSectionIds = new Set();
 let visibleTabsCache = [];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -73,7 +74,9 @@ function bindEvents() {
   els.forceDiscardHighlighted.addEventListener("click", () => discardHighlightedTabs(true));
   els.discardCurrentGroup.addEventListener("click", () => discardCurrentGroup());
   els.forceDiscardCurrentGroup.addEventListener("click", () => discardCurrentGroup(true));
+  els.tabsList.addEventListener("click", (event) => handleSectionToggle(event));
   els.tabsList.addEventListener("click", (event) => handleTabAction(event));
+  els.tabsList.addEventListener("click", (event) => handleTabNavigation(event));
   els.tabsList.addEventListener("change", (event) => handleTabSelection(event));
 }
 
@@ -95,6 +98,7 @@ async function loadPopupData(options = {}) {
     popupData = response;
     pruneSelection();
     render(response);
+    restoreScrollAnchor(options.scrollAnchor);
     if (clearStatus) {
       setStatus("");
     }
@@ -113,11 +117,15 @@ function render(data) {
   const total = data.summary.totalTabs;
 
   els.autoDiscardEnabled.checked = settings.autoDiscardEnabled;
-  els.summaryText.textContent = `${total} tabs, ${discarded} discarded, ${selectedTabIds.size} checked`;
+  els.summaryText.textContent = getWindowSummaryText(total, discarded);
 
   renderCurrentTab(data.activeTab);
   renderMemoryStatus(data.summary.memory);
   renderTabArea();
+}
+
+function getWindowSummaryText(total, discarded) {
+  return `${total} tabs, ${discarded} discarded`;
 }
 
 function renderCurrentTab(tab) {
@@ -184,7 +192,10 @@ function renderTabArea() {
 
   const visibleTabs = getVisibleTabs();
   visibleTabsCache = visibleTabs;
-  els.summaryText.textContent = `${popupData.summary.totalTabs} tabs, ${popupData.summary.discardedTabs} discarded, ${selectedTabIds.size} checked`;
+  els.summaryText.textContent = getWindowSummaryText(
+    popupData.summary.totalTabs,
+    popupData.summary.discardedTabs
+  );
   els.eligibleCount.textContent = `${visibleTabs.length} shown, ${countVisibleEligibleTabs(visibleTabs)} eligible`;
   renderTabSections(visibleTabs);
   renderSelectionState();
@@ -196,7 +207,10 @@ function renderSelectionState() {
   }
 
   visibleTabsCache = visibleTabsCache.length ? visibleTabsCache : getVisibleTabs();
-  els.summaryText.textContent = `${popupData.summary.totalTabs} tabs, ${popupData.summary.discardedTabs} discarded, ${selectedTabIds.size} checked`;
+  els.summaryText.textContent = getWindowSummaryText(
+    popupData.summary.totalTabs,
+    popupData.summary.discardedTabs
+  );
   renderSelectionSummary();
   updateBulkControls(visibleTabsCache);
 }
@@ -291,6 +305,7 @@ function buildTabSections(tabs) {
     if (tab.group) {
       const key = String(tab.groupId);
       const existing = groupedSections.get(key) || {
+        id: `group:${key}`,
         type: "group",
         title: tab.group.title || `Group ${tab.groupId}`,
         color: tab.group.color || "grey",
@@ -305,24 +320,32 @@ function buildTabSections(tabs) {
     }
   });
 
-  if (pinnedTabs.length) {
+  if (ungroupedTabs.length) {
     sections.push({
-      type: "pinned",
-      title: "Pinned tabs",
-      tabs: pinnedTabs,
-      firstOrder: 0
+      id: "ungrouped",
+      type: "ungrouped",
+      title: "Ungrouped tabs",
+      tabs: ungroupedTabs,
+      firstOrder: 0,
+      collapsed: collapsedSectionIds.has("ungrouped")
     });
   }
 
   sections.push(...[...groupedSections.values()]
-    .sort((a, b) => a.firstOrder - b.firstOrder || a.title.localeCompare(b.title)));
+    .sort((a, b) => a.firstOrder - b.firstOrder || a.title.localeCompare(b.title))
+    .map((section) => ({
+      ...section,
+      collapsed: collapsedSectionIds.has(section.id)
+    })));
 
-  if (ungroupedTabs.length) {
+  if (pinnedTabs.length) {
     sections.push({
-      type: "ungrouped",
-      title: "Ungrouped tabs",
-      tabs: ungroupedTabs,
-      firstOrder: 0
+      id: "pinned",
+      type: "pinned",
+      title: "Pinned tabs",
+      tabs: pinnedTabs,
+      firstOrder: 0,
+      collapsed: collapsedSectionIds.has("pinned")
     });
   }
 
@@ -331,13 +354,20 @@ function buildTabSections(tabs) {
 
 function createTabSection(section) {
   const sectionEl = document.createElement("section");
-  sectionEl.className = `tab-list-section ${section.type}`;
+  sectionEl.dataset.sectionId = section.id;
+  sectionEl.className = [
+    "tab-list-section",
+    section.type,
+    section.collapsed ? "collapsed" : ""
+  ].filter(Boolean).join(" ");
 
   const header = document.createElement("div");
   header.className = "tab-list-section-header";
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "tab-list-section-title";
+
+  titleWrap.append(createSectionToggle(section));
 
   if (section.type === "group") {
     const color = document.createElement("span");
@@ -358,15 +388,34 @@ function createTabSection(section) {
 
   const rows = document.createElement("div");
   rows.className = "tab-list-section-tabs";
-  rows.replaceChildren(...section.tabs.map((tab) => createTabRow(tab)));
+  if (section.collapsed) {
+    rows.hidden = true;
+  } else {
+    rows.replaceChildren(...section.tabs.map((tab) => createTabRow(tab)));
+  }
 
   header.append(titleWrap, summary);
   sectionEl.append(header, rows);
   return sectionEl;
 }
 
+function createSectionToggle(section) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "section-toggle quiet";
+  button.dataset.toggleSectionId = section.id;
+  button.setAttribute("aria-expanded", String(!section.collapsed));
+  button.setAttribute(
+    "aria-label",
+    section.collapsed ? `Expand ${section.title}` : `Collapse ${section.title}`
+  );
+  button.textContent = section.collapsed ? "+" : "-";
+  return button;
+}
+
 function createTabRow(tab) {
   const row = document.createElement("div");
+  row.dataset.tabId = String(tab.id);
   row.className = [
     "tab-row",
     tab.discarded ? "discarded" : "loaded",
@@ -720,6 +769,7 @@ async function handleTabAction(event) {
 
   const tabId = Number(button.dataset.tabId);
   const action = button.dataset.action;
+  const scrollAnchor = captureTabActionScrollAnchor(button, action);
 
   try {
     if (action === "reload") {
@@ -730,10 +780,142 @@ async function handleTabAction(event) {
       setStatus(response.discarded ? "Tab discarded" : response.reason);
     }
 
-    await refreshPopupData();
+    await loadPopupData({
+      showLoading: false,
+      clearStatus: false,
+      scrollAnchor
+    });
   } catch (error) {
     setStatus(error.message, true);
   }
+}
+
+async function handleTabNavigation(event) {
+  if (event.target.closest("button, input, select, textarea, a")) {
+    return;
+  }
+
+  const row = event.target.closest(".tab-row[data-tab-id]");
+  if (!row) {
+    return;
+  }
+
+  try {
+    await chrome.tabs.update(Number(row.dataset.tabId), { active: true });
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+function handleSectionToggle(event) {
+  const button = event.target.closest("button[data-toggle-section-id]");
+  if (!button) {
+    return;
+  }
+
+  const scrollAnchor = captureSectionScrollAnchor(button);
+  const sectionId = button.dataset.toggleSectionId;
+  if (collapsedSectionIds.has(sectionId)) {
+    collapsedSectionIds.delete(sectionId);
+  } else {
+    collapsedSectionIds.add(sectionId);
+  }
+
+  renderTabArea();
+  restoreScrollAnchor(scrollAnchor);
+}
+
+function captureTabActionScrollAnchor(button, action) {
+  const scroller = getScrollElement();
+  const row = button.closest(".tab-row[data-tab-id]");
+  const fallback = { scrollTop: scroller.scrollTop };
+
+  if (!row) {
+    return fallback;
+  }
+
+  const rows = [...els.tabsList.querySelectorAll(".tab-row[data-tab-id]")];
+  const rowIndex = rows.indexOf(row);
+  const anchorRow = action === "discard"
+    ? rows[rowIndex + 1] || rows[rowIndex - 1] || row
+    : row;
+
+  if (!anchorRow) {
+    return fallback;
+  }
+
+  return {
+    ...fallback,
+    tabId: Number(anchorRow.dataset.tabId),
+    top: anchorRow.getBoundingClientRect().top
+  };
+}
+
+function captureSectionScrollAnchor(button) {
+  const scroller = getScrollElement();
+  const section = button.closest(".tab-list-section[data-section-id]");
+  const fallback = { scrollTop: scroller.scrollTop };
+
+  if (!section) {
+    return fallback;
+  }
+
+  return {
+    ...fallback,
+    sectionId: section.dataset.sectionId,
+    top: section.getBoundingClientRect().top
+  };
+}
+
+function restoreScrollAnchor(anchor) {
+  if (!anchor) {
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    const scroller = getScrollElement();
+    const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+
+    if (Number.isInteger(anchor.tabId) && Number.isFinite(anchor.top)) {
+      const row = findTabRow(anchor.tabId);
+      if (row) {
+        const nextTop = row.getBoundingClientRect().top;
+        scroller.scrollTop = clampScrollTop(scroller.scrollTop + nextTop - anchor.top, maxScroll);
+        return;
+      }
+    }
+
+    if (anchor.sectionId && Number.isFinite(anchor.top)) {
+      const section = findTabSection(anchor.sectionId);
+      if (section) {
+        const nextTop = section.getBoundingClientRect().top;
+        scroller.scrollTop = clampScrollTop(scroller.scrollTop + nextTop - anchor.top, maxScroll);
+        return;
+      }
+    }
+
+    if (Number.isFinite(anchor.scrollTop)) {
+      scroller.scrollTop = clampScrollTop(anchor.scrollTop, maxScroll);
+    }
+  });
+}
+
+function findTabRow(tabId) {
+  return [...els.tabsList.querySelectorAll(".tab-row[data-tab-id]")]
+    .find((row) => Number(row.dataset.tabId) === tabId) || null;
+}
+
+function findTabSection(sectionId) {
+  return [...els.tabsList.querySelectorAll(".tab-list-section[data-section-id]")]
+    .find((section) => section.dataset.sectionId === sectionId) || null;
+}
+
+function getScrollElement() {
+  return document.scrollingElement || document.documentElement;
+}
+
+function clampScrollTop(value, maxScroll) {
+  return Math.max(0, Math.min(Number(value) || 0, maxScroll));
 }
 
 function handleTabSelection(event) {
