@@ -508,6 +508,10 @@ select {
   min-width: 0;
 }
 
+.tab-list-section.level-1 {
+  padding-left: 12px;
+}
+
 .tab-list-section + .tab-list-section {
   padding-top: 10px;
   border-top: 1px solid var(--line);
@@ -520,6 +524,12 @@ select {
   gap: 10px;
   min-width: 0;
   padding: 0 2px;
+}
+
+.tab-list-section.window > .tab-list-section-header {
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
 }
 
 .tab-list-section-title {
@@ -555,6 +565,10 @@ select {
 .tab-list-section-tabs {
   display: grid;
   gap: 6px;
+}
+
+.tab-list-section-tabs.nested-sections {
+  gap: 10px;
 }
 
 .tab-row {

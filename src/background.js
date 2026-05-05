@@ -537,9 +537,7 @@ async function updatePageState(tabId, pageState) {
 async function getPopupData(message) {
   const settings = await getSettings();
   const runtimeState = await getRuntimeState();
-  const tabs = await chrome.tabs.query(Number.isInteger(message.windowId)
-    ? { windowId: message.windowId }
-    : { currentWindow: true });
+  const tabs = await chrome.tabs.query(getPopupTabsQuery(message));
   const [groupsById, memorySnapshot] = await Promise.all([
     getGroupsById(tabs),
     getMemorySnapshot(tabs, runtimeState)
@@ -579,6 +577,16 @@ async function getPopupData(message) {
       battery: runtimeState.latestBatteryState
     }
   };
+}
+
+function getPopupTabsQuery(message) {
+  if (message.allWindows) {
+    return {};
+  }
+
+  return Number.isInteger(message.windowId)
+    ? { windowId: message.windowId }
+    : { currentWindow: true };
 }
 
 async function getGroupsById(tabs) {
@@ -1229,26 +1237,28 @@ function getLastActiveAt(tab, runtimeState, now) {
 }
 
 async function updateActionStatus() {
-  const [settings, runtimeState, tabs] = await Promise.all([
+  const [settings, runtimeState, tabs, activeTabs] = await Promise.all([
     getSettings(),
     getRuntimeState(),
-    chrome.tabs.query({})
+    chrome.tabs.query({}),
+    chrome.tabs.query({ active: true, lastFocusedWindow: true })
   ]);
-  const discardedCount = tabs.filter((tab) => isTabUnloaded(tab)).length;
+  const activeTab = activeTabs[0] || null;
+  const loadedCount = tabs.filter((tab) => !isTabUnloaded(tab)).length;
   const badgeText = settings.autoDiscardEnabled
-    ? (discardedCount ? String(discardedCount) : "")
+    ? (loadedCount ? String(loadedCount) : "")
     : "off";
 
   await chrome.action.setBadgeBackgroundColor({ color: settings.autoDiscardEnabled ? "#356d8f" : "#72777f" });
   await chrome.action.setBadgeText({ text: badgeText });
 
-  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const decision = activeTab
     ? describeTab(activeTab, settings, runtimeState)
     : null;
   const title = [
     "Auto Tab Memory Saver",
     settings.autoDiscardEnabled ? "Automatic discarding is on" : "Automatic discarding is paused",
+    settings.autoDiscardEnabled ? `Badge: ${loadedCount} loaded tabs across all windows` : "",
     decision ? `Current tab: ${decision.reason}` : ""
   ].filter(Boolean).join("\n");
 

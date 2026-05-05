@@ -93,7 +93,7 @@ async function loadPopupData(options = {}) {
     const response = await sendMessage({
       type: "GET_POPUP_DATA",
       activeTabId: activeTab?.id,
-      windowId: activeTab?.windowId
+      allWindows: true
     });
     popupData = response;
     pruneSelection();
@@ -197,7 +197,7 @@ function renderTabArea() {
     popupData.summary.discardedTabs
   );
   els.eligibleCount.textContent = `${visibleTabs.length} shown, ${countVisibleEligibleTabs(visibleTabs)} eligible`;
-  renderTabSections(visibleTabs);
+  renderTabSections(popupData.tabs || [], visibleTabs);
   renderSelectionState();
 }
 
@@ -278,8 +278,8 @@ function createSelectionMetric(label, value) {
   return item;
 }
 
-function renderTabSections(tabs) {
-  if (!tabs.length) {
+function renderTabSections(allTabs, visibleTabs) {
+  if (!allTabs.length) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = getEmptyTabsText();
@@ -287,18 +287,70 @@ function renderTabSections(tabs) {
     return;
   }
 
-  const sections = buildTabSections(tabs);
+  const sections = buildTabSections(allTabs, visibleTabs);
   els.tabsList.replaceChildren(...sections.map((section) => createTabSection(section)));
 }
 
-function buildTabSections(tabs) {
-  const sections = [];
-  const pinnedTabs = tabs.filter((tab) => tab.pinned);
-  const groupedSections = new Map();
-  const ungroupedTabs = [];
+function buildTabSections(allTabs, visibleTabs) {
+  const windowsById = new Map();
+  const visibleTabsByWindowId = groupTabsByWindowId(visibleTabs);
+  const currentWindowId = popupData?.activeTab?.windowId;
 
-  tabs.forEach((tab, order) => {
+  allTabs.forEach((tab, order) => {
+    const key = String(tab.windowId);
+    const existing = windowsById.get(key) || {
+      id: `window:${key}`,
+      type: "window",
+      title: tab.windowId === currentWindowId ? "Current window" : `Window ${windowsById.size + 1}`,
+      windowId: tab.windowId,
+      tabs: [],
+      firstOrder: order
+    };
+    existing.tabs.push(tab);
+    existing.firstOrder = Math.min(existing.firstOrder, order);
+    windowsById.set(key, existing);
+  });
+
+  return [...windowsById.values()]
+    .sort((a, b) => getWindowSectionSortValue(a, currentWindowId) - getWindowSectionSortValue(b, currentWindowId))
+    .map((section) => ({
+      ...section,
+      allTabs: section.tabs,
+      tabs: visibleTabsByWindowId.get(String(section.windowId)) || [],
+      subsections: buildWindowTabSections({
+        ...section,
+        tabs: visibleTabsByWindowId.get(String(section.windowId)) || []
+      }),
+      collapsed: collapsedSectionIds.has(section.id)
+    }));
+}
+
+function groupTabsByWindowId(tabs) {
+  const tabsByWindowId = new Map();
+
+  for (const tab of tabs) {
+    const key = String(tab.windowId);
+    const existing = tabsByWindowId.get(key) || [];
+    existing.push(tab);
+    tabsByWindowId.set(key, existing);
+  }
+
+  return tabsByWindowId;
+}
+
+function getWindowSectionSortValue(section, currentWindowId) {
+  return section.windowId === currentWindowId ? -1 : section.firstOrder;
+}
+
+function buildWindowTabSections(windowSection) {
+  const sections = [];
+  const regularTabs = [];
+  const pinnedTabs = [];
+  const groupedSections = new Map();
+
+  windowSection.tabs.forEach((tab, order) => {
     if (tab.pinned) {
+      pinnedTabs.push(tab);
       return;
     }
 
@@ -310,24 +362,27 @@ function buildTabSections(tabs) {
         title: tab.group.title || `Group ${tab.groupId}`,
         color: tab.group.color || "grey",
         tabs: [],
-        firstOrder: order
+        firstOrder: order,
+        level: 1
       };
       existing.tabs.push(tab);
       existing.firstOrder = Math.min(existing.firstOrder, order);
       groupedSections.set(key, existing);
-    } else {
-      ungroupedTabs.push(tab);
+      return;
     }
+
+    regularTabs.push(tab);
   });
 
-  if (ungroupedTabs.length) {
+  if (regularTabs.length) {
     sections.push({
-      id: "ungrouped",
-      type: "ungrouped",
-      title: "Ungrouped tabs",
-      tabs: ungroupedTabs,
+      id: `${windowSection.id}:tabs`,
+      type: "regular",
+      title: "Tabs",
+      tabs: regularTabs,
       firstOrder: 0,
-      collapsed: collapsedSectionIds.has("ungrouped")
+      level: 1,
+      collapsed: collapsedSectionIds.has(`${windowSection.id}:tabs`)
     });
   }
 
@@ -340,12 +395,13 @@ function buildTabSections(tabs) {
 
   if (pinnedTabs.length) {
     sections.push({
-      id: "pinned",
+      id: `${windowSection.id}:pinned`,
       type: "pinned",
       title: "Pinned tabs",
       tabs: pinnedTabs,
       firstOrder: 0,
-      collapsed: collapsedSectionIds.has("pinned")
+      level: 1,
+      collapsed: collapsedSectionIds.has(`${windowSection.id}:pinned`)
     });
   }
 
@@ -358,6 +414,7 @@ function createTabSection(section) {
   sectionEl.className = [
     "tab-list-section",
     section.type,
+    `level-${section.level || 0}`,
     section.collapsed ? "collapsed" : ""
   ].filter(Boolean).join(" ");
 
@@ -383,13 +440,22 @@ function createTabSection(section) {
 
   const summary = document.createElement("span");
   summary.className = "tab-list-section-summary";
-  summary.textContent = getTabSectionSummary(section.tabs);
+  summary.textContent = getTabSectionSummary(section);
   summary.title = summary.textContent;
 
   const rows = document.createElement("div");
-  rows.className = "tab-list-section-tabs";
+  rows.className = [
+    "tab-list-section-tabs",
+    section.subsections ? "nested-sections" : ""
+  ].filter(Boolean).join(" ");
   if (section.collapsed) {
     rows.hidden = true;
+  } else if (section.subsections) {
+    if (section.subsections.length) {
+      rows.replaceChildren(...section.subsections.map((subsection) => createTabSection(subsection)));
+    } else {
+      rows.replaceChildren(createSectionEmptyState());
+    }
   } else {
     rows.replaceChildren(...section.tabs.map((tab) => createTabRow(tab)));
   }
@@ -416,6 +482,7 @@ function createSectionToggle(section) {
 function createTabRow(tab) {
   const row = document.createElement("div");
   row.dataset.tabId = String(tab.id);
+  row.dataset.windowId = String(tab.windowId);
   row.className = [
     "tab-row",
     tab.discarded ? "discarded" : "loaded",
@@ -473,13 +540,25 @@ function createTabRow(tab) {
   return row;
 }
 
-function getTabSectionSummary(tabs) {
-  const loadedCount = tabs.filter((tab) => !tab.discarded).length;
-  const discardedCount = tabs.length - loadedCount;
-  const eligibleCount = countVisibleEligibleTabs(tabs);
-  const checkedCount = tabs.filter((tab) => selectedTabIds.has(tab.id)).length;
+function createSectionEmptyState() {
+  const empty = document.createElement("p");
+  empty.className = "empty-state section-empty";
+  empty.textContent = getEmptyTabsText();
+  return empty;
+}
+
+function getTabSectionSummary(section) {
+  const shownTabs = section.tabs || [];
+  const sourceTabs = section.allTabs || shownTabs;
+  const loadedCount = sourceTabs.filter((tab) => !tab.discarded).length;
+  const discardedCount = sourceTabs.length - loadedCount;
+  const eligibleCount = countVisibleEligibleTabs(shownTabs);
+  const checkedCount = shownTabs.filter((tab) => selectedTabIds.has(tab.id)).length;
+  const shownText = sourceTabs.length === shownTabs.length
+    ? `${shownTabs.length} shown`
+    : `${shownTabs.length} shown of ${sourceTabs.length}`;
   const parts = [
-    `${tabs.length} shown`,
+    shownText,
     `${loadedCount} loaded`
   ];
 
@@ -508,15 +587,22 @@ function getVisibleTabs() {
 
   return filtered.sort((a, b) => {
     if (sortMode === "memory") {
-      return getMemoryBytes(b) - getMemoryBytes(a) || a.index - b.index;
+      return getMemoryBytes(b) - getMemoryBytes(a) || compareTabsByWindowPosition(a, b);
     }
 
     if (sortMode === "lastAccessed") {
-      return Number(a.lastActiveAt) - Number(b.lastActiveAt) || a.index - b.index;
+      return Number(a.lastActiveAt) - Number(b.lastActiveAt) || compareTabsByWindowPosition(a, b);
     }
 
-    return a.index - b.index;
+    return compareTabsByWindowPosition(a, b);
   });
+}
+
+function compareTabsByWindowPosition(a, b) {
+  const currentWindowId = popupData?.activeTab?.windowId;
+  const aWindowRank = a.windowId === currentWindowId ? -1 : a.windowId;
+  const bWindowRank = b.windowId === currentWindowId ? -1 : b.windowId;
+  return aWindowRank - bWindowRank || a.index - b.index;
 }
 
 function countVisibleEligibleTabs(tabs) {
@@ -683,7 +769,6 @@ async function toggleSiteException() {
 }
 
 async function discardWindow(force) {
-  const tab = popupData?.activeTab;
   const impact = getWindowDiscardImpact(force);
 
   if (!confirmDiscardWindow(force, impact)) {
@@ -692,8 +777,7 @@ async function discardWindow(force) {
 
   try {
     const response = await sendMessage({
-      type: "DISCARD_WINDOW",
-      windowId: tab?.windowId,
+      type: "DISCARD_ALL_WINDOWS",
       force
     });
     setBulkStatus(response);
@@ -723,13 +807,13 @@ function confirmDiscardWindow(force, impact) {
 
   const lines = force
     ? [
-        `Force discard ${impact.count} ${pluralize(impact.count, "tab")} in this window?`,
+        `Force discard ${impact.count} ${pluralize(impact.count, "tab")} across all windows?`,
         "",
         "This bypasses extension protections where Chrome allows it.",
         "Discarded tabs stay in the tab strip and reload when activated."
       ]
     : [
-        `Discard ${impact.count} eligible ${pluralize(impact.count, "tab")} in this window?`,
+        `Discard ${impact.count} eligible ${pluralize(impact.count, "tab")} across all windows?`,
         "",
         `${impact.eligibleCount} ${pluralize(impact.eligibleCount, "tab")} currently ${impact.eligibleCount === 1 ? "matches" : "match"} the eligible-tab rules.`,
         "Discarded tabs stay in the tab strip and reload when activated."
@@ -747,13 +831,8 @@ function getNoWindowDiscardMessage(force, impact) {
 }
 
 async function reloadDiscarded() {
-  const tab = popupData?.activeTab;
-
   try {
-    const response = await sendMessage({
-      type: "RELOAD_DISCARDED",
-      windowId: tab?.windowId
-    });
+    const response = await sendMessage({ type: "RELOAD_DISCARDED" });
     setStatus(`Reloaded ${response.reloaded} tabs`);
     await refreshPopupData();
   } catch (error) {
@@ -802,6 +881,7 @@ async function handleTabNavigation(event) {
 
   try {
     await chrome.tabs.update(Number(row.dataset.tabId), { active: true });
+    await chrome.windows.update(Number(row.dataset.windowId), { focused: true });
   } catch (error) {
     setStatus(error.message, true);
   }
